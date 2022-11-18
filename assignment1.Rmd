@@ -1,0 +1,394 @@
+---
+title: | 
+    | Assignment 1 - Medical Cost
+    | Statistical Inference and Modelling - SIM
+    | 1st Semester 2022
+author: "Ander Barrio Campos, Odysseas Kyparissis"
+date: "`r Sys.Date()`"
+geometry: margin=2cm
+fontsize: 12pt
+line-height: 1.5
+
+output: 
+  pdf_document:
+    includes:
+      in_header: header.tex
+    toc: no
+    number_sections: true
+    fig_width: 6
+    fig_height: 4
+    fig_caption: true
+classoption: a4paper
+editor_options: 
+  chunk_output_type: console
+header-includes:
+- \pagenumbering{gobble}
+---
+
+\newpage
+
+```{=latex}
+\setcounter{tocdepth}{4}
+\tableofcontents
+```
+```{=tex}
+\newpage
+\pagenumbering{arabic}
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Clear plots from the R plots view:
+if(!is.null(dev.list())) dev.off()
+
+# Clean workspace - No variables at the current workspace
+rm(list=ls())
+
+# Setting working directory
+setwd("C:/Users/odyky/Desktop/SIM-Project")
+
+# Libraries loading
+library(ggplot2)
+library(GGally)
+library(car)
+library(arules)
+library(lmtest)
+library(chemometrics)
+library(FactoMineR)
+```
+
+\newpage
+
+# Explanatory Data Analysis - EDA
+
+## Loading Insurance Data
+
+In this part of the report, setting up the working environment and loading of the data into R are taking place. Additionally, a first look at the summary of the raw insurance data set is taken.
+
+```{r read}
+df <- read.csv("insurance.csv")
+summary(df)
+```
+
+## Data Types
+
+To begin with, the types of the raw variables contained into the data set are being checked.
+
+```{r rawtypes, echo=TRUE}
+typeof(df$age)
+typeof(df$sex)
+typeof(df$bmi)
+typeof(df$children)
+typeof(df$smoker)
+typeof(df$region)
+typeof(df$charges)
+```
+
+It is clear, that the data set consists of 4 numerical variables and 3 categorical ones. The numeric variables are the following: age, BMI, children and charges, while the categorical ones are: sex, smoker and region. In the following sections, categorical variables will be transformed into labeled factors, as well as, new derived factors will be produced from the numerical values in order to see their performance on the regression modelling process.
+
+## Checking for Missing Data
+
+To continue with, a check for missing data is conducted on the raw data set. Considering the summary of the data set presented before, there are no NA values in the variables of the data set. The same conclusion is derived when a check is completed for each individual variable.
+
+```{r missingData, include=FALSE}
+ll <- which( df$age=="NA"); length(ll)
+ll <- which( df$sex=="NA"); length(ll)
+ll <- which( df$bmi=="NA"); length(ll)
+ll <- which( df$children=="NA"); length(ll)
+ll <- which( df$smoker=="NA"); length(ll)
+ll <- which( df$region=="NA"); length(ll)
+ll <- which( df$charges=="NA"); length(ll)
+```
+
+## Checking for Duplicates
+
+By checking if there are duplicate rows inside the raw data set, the result indicates that a single occurrence of a duplicate exists and its index is equal to 582 as it is shown below.
+
+```{r checkingDuplicates}
+dupli <- duplicated(df)
+dupli_ind <- which(dupli)
+dupli_ind; length(dupli_ind)
+```
+
+With the following command, a closer look can be taken into the values of the duplicate row.
+
+```{r presentDuplicate}
+df [dupli_ind,]
+```
+
+To continue with the explanatory data analysis, the duplicate row is removed from the raw data set. Finally, a check for the existence of duplicates is taking place which results in a FALSE statement.
+
+```{r removeDuplicate}
+df<- df[-dupli_ind, ]
+any(duplicated(df))
+```
+
+## Creating Factors for Qualitative Variables
+
+In this subsection of EDA, all qualitative variables are transformed into labeled factors. The qualitative variables, as mentioned before, are sex, smoker and region. First of all, the unique values of these 3 variables are presented below:
+
+```{r uniqueValeusOfQualitative}
+unique(df$sex)
+unique(df$smoker)
+unique(df$region)
+```
+
+The next step includes the creation of the labeled factors based on the unique values of the categorical variables. Following the practice below, in case a categorical variable includes NA values, they will be transformed into zeros, which is an incorrect approach. In this case, once missing values check indicated that there are no missing data, proceeding with this practice does not result in erroneous data.
+
+### Sex to Labeled Factor
+
+```{r sexToFactor}
+# 1 - Initialize a variable with all values setted at 0
+df$f.sex<-0
+# 2 - Change its value for the cases where type of sex equals "male"
+df$f.sex[df$sex=="male"]<-1
+# 3 - Convering f.sex to labeled factor
+df$f.sex<-factor(df$f.sex, labels=c("F","M"))
+```
+
+### Smoker to Labeled Factor
+
+```{r smokerToFactor}
+# 1 - Initialize a variable with all values setted at 0
+df$f.smok<-0
+# 2 - Change its value for the cases where type of smoker equals "yes"
+df$f.smok[df$smoker=="yes"]<-1
+# 3 - Convering f.smok to labeled factor
+df$f.smok<-factor(df$f.smok, labels=c("No","Yes"))
+```
+
+### Region to Labeled Factor
+
+```{r regionToFactor}
+# 1 - Initialize a variable with all values setted at 0
+df$f.reg<-0
+# 2 - Change its value for the cases where type of region equals: 
+# "southwest", "southeast", "northwest"
+df$f.reg[df$region=="southwest"]<-3
+df$f.reg[df$region=="southeast"]<-2
+df$f.reg[df$region=="northwest"]<-1
+# 3 - Convering f.reg to labeled factor
+df$f.reg<-factor(df$f.reg,labels=c("NE","NW","SE","SW"))
+```
+
+## Creating Factors for Numerical Variables
+
+This step is created in order to extract factors from numerical variables. This approach's goal is to check if some variables are more descriptive as a factor rather than as a numeric feature while training linear models. From the numerical variables of the data set, only age and BMI will be converted to factors, not the target variable (charges). Firstly, the discretization of the variable's values is taking place followed by the assigning of a label for each divided group.
+
+### Age to Labeled Factor
+
+```{r ageToFactor}
+# 1 - Copying column age to a new column named f.age
+df$f.age<-df$age
+
+# 2 - Checking distribution of sample for variable age
+# in order to decide how to discretize the values
+Boxplot(df$f.age, main= "Boxplot of Variable Age")
+
+# Once age distribution is almost equally devided
+# into its range values, it is decided to discretize
+# by using equal intervals
+df$f.age<-discretize(df$f.age, method = "interval", breaks = 3,
+                 labels = c("Young","Medium", "Old"))
+```
+
+The result of the discretization for age is calculated by separating the values of the variable into 3 equally-interval groups with labels: "Young", "Medium" and "Old" respectively. The interval is equal to 15 years. Thus, group "Young" contain people in ages [18,33], group "Medium" contain individuals with ages [34,48] and finally "Old" group consist of people with ages [49,64].
+
+### BMI to Labeled Factor
+
+For BMI, the discretization of the numerical value will be completed by using the labels "Low", "Normal" and "High". The values for creating the groups in this step are selected base on the Adult Body Mass Index values from healthcare bibliography.
+
+```{r bmiToFactor}
+# 1 - Copying column bmi to a new column named f.bmi
+df$f.bmi<-df$bmi
+# 2- Discretizing directly based on normal BMI values of Bibliography
+df$f.bmi<-discretize(df$f.bmi, method = "fixed", breaks = c(-1,18.5,24.9,1000),
+                 labels = c("Low","Normal", "High"))
+```
+
+## Factor Conversion Check
+
+After checking both manually and by executing commands on the terminal, the conversion of the categorical and numerical variables to factors has been completed correctly. In addition, while the categorical variables sex, region and smoker have been transformed into labeled factors, their old versions of type "chr" are discarded from the data frame. Below is presented the new structure of the data frame.
+
+```{r removingCHRVariables}
+#We will only continue with those factor so we delete the previous variables
+df$sex <- NULL #delete sex
+df$region <- NULL #delete region
+df$smoker <- NULL #delete smoker
+str(df)
+```
+
+```{r ggpairs, include=FALSE}
+ggpairs(df[,c(7,1:6)])
+```
+
+## Normal Distribution Test for Target Variable (charges)
+
+By taking a look at the histogram of the target variable and the density curve that describe a normal distribution with mean and standard deviation equal to the respective values of the data set, one can understand that the target variable does not follow a normal distribution. In order to be precise, by running the Shapiro test, the result indicate a value less than 0.05. Thus, the null hypothesis can be rejected and conclude that the target variable does not follow a normal distribution.
+
+```{r nomrlaDistHist, echo=FALSE}
+
+# 1- Histogram for graphical analysis:
+hist(df$charges,freq=F,breaks=10)
+# 2- Get mean and std of the variable:
+m=mean(df$charges);std=sd(df$charges);m;std
+# 3- What would be de density curve of a normal distribution
+# with the same mean and std as prestige?
+curve(dnorm(x,m,std),col="red",lwd=2,add=T)
+```
+
+```{r shapiroTest}
+shapiro.test(df$charges)
+```
+
+## Serial Correlation
+
+In order to address the serial correlation for the target variable two different approaches were followed. Firstly, the autocorrelation function was used which produces the ACF graph shown below.
+
+```{r acf, echo=FALSE}
+acf(df$charges)
+```
+
+From the graph, one can understand that all the vertical lines are inside the two horizontal blue lines except for the first one. The interpretation of this result is that there is no serial correlation for the target variable. Furthermore, for using statistical methods to address the same problem, the Durbin-Watson (DW) test was applied. The result is presented here:
+
+```{r dwTest}
+dwtest(df$charges~1)
+```
+
+Once the resulting p-value is equal to 0.5 approximately, it means that the null hypothesis can not be rejected. The Durbin-Watson test has the null hypothesis that the autocorrelation of the disturbances is 0, thus serial correlation for the target variable is discarded.
+
+## Outliers Detection
+
+```{r calcQFunction, echo=FALSE}
+calcQ <- function(x) {
+  s.x <- summary(x)
+  iqr<-s.x[5]-s.x[2]
+  list(souti=s.x[2]-3*iqr, mouti=s.x[2]-1.5*iqr, min=s.x[1], q1=s.x[2], q2=s.x[3], 
+       q3=s.x[5], max=s.x[6], mouts=s.x[5]+1.5*iqr, souts=s.x[5]+3*iqr ) }
+```
+
+In the following subsections both uni-variate and multivariate outliers will be detected and treated.
+
+### Univariate Outliers
+
+To start with, in the following subsection the uni-variate outliers will be detected for the numerical variables: age, bmi, children and charges with the respective order. It is crucial to mention here, that only severe outliers were taken into account and not mild ones. Now, concerning variable age, as it was depicted before in the boxplot of the variable, outliers did not exist. The same result is derived after trying to detect outliers using the IQR method, which is implemented by function calcQ.
+
+```{r uniOutAge}
+# 1 - AGE:
+var_out<-calcQ(df$age)
+llout_age<-which((df$age<var_out$souti)|(df$age>var_out$souts))
+length(llout_age)
+```
+
+This number indicates the number of indexes belonging to outlier observations for variable age, thus while it is zero it means that there are no severe outliers for variable age. Following by, the same approach is followed for variable BMI.
+
+```{r uniOutBMI}
+# 2 - BMI:
+Boxplot(df$bmi, main = "Boxplot of Variable BMI")
+var_out<-calcQ(df$bmi)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+abline(h=var_out$mouts,col="red")
+llout_bmi<-which((df$bmi<var_out$souti)|(df$bmi>var_out$souts))
+length(llout_bmi)
+```
+
+The results are the same, there are no severe outliers for variable BMI as well, but in this case some mild ones appear but will not be treated. To continue with, same technique is used for variable children.
+
+```{r uniOutChildren}
+# 2 - CHILDREN:
+Boxplot(df$children, main = "Boxplot of Variable BMI")
+var_out<-calcQ(df$children)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+abline(h=var_out$mouts,col="red")
+llout_children<-which((df$children<var_out$souti)|(df$children>var_out$souts))
+length(llout_children)
+```
+
+And the results are again the same, there are not outliers for this variable as well. Finally, the outlier detection for the target variable is taking place.
+
+```{r uniOutCharges}
+# 4 - CHARGES:
+Boxplot(df$charges, main = "Boxplot of Variable Charges")
+var_out<-calcQ(df$charges)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+abline(h=var_out$mouts,col="red")
+llout_charges<-which((df$charges<var_out$souti)|(df$charges>var_out$souts))
+length(llout_charges)
+```
+
+In this case, there are 6 extreme outliers for the target variable, which are presented below.
+
+```{r chargesOutliers}
+df[llout_charges,]
+```
+
+Due to the fact that the outliers are presented for the target variable, treating them would not be an ideal approach. By checking the values of the data set for those 6 cases, one conclusion that can be drawn is that all of them consern people who smoke and have a high BMI. The values of the other variables for those 6 cases are fluctuating. For this reason, it was decided to remove those observations from our further analysis.
+
+```{r removingChargesOutliers}
+df <- df[-llout_charges,]
+```
+
+### Multivariate Outliers
+
+```{r}
+res.mout <- Moutlier( df[ , c(1:4)], quantile = 0.95 )
+#str(res.mout)
+#res.mout
+
+par(mfrow=c(1,1))
+plot( res.mout$md, res.mout$rd )
+text(res.mout$md, res.mout$rd, labels=rownames(df),adj=1, cex=0.5)
+abline( h=res.mout$cutoff, lwd=2, col="red")
+abline( v=res.mout$cutoff, lwd=2, col="red")
+
+llmout <- which( ( res.mout$md > res.mout$cutoff ) 
+                 & (res.mout$rd > res.mout$cutoff) );llmout
+df[llmout,]
+#res.mout$md[llmout]
+df$mout <- 0
+df$mout[ llmout ] <- 1
+df$mout <- factor( df$mout, labels = c("MvOut.No","MvOut.Yes"))
+summary(df)
+```
+
+## Preliminary Exploratory Analysis
+
+```{r}
+res.con<-condes(df,4, proba = 1)
+#str(res.con)
+#names(res.con)
+res.con$quanti
+res.con$quali
+res.con$category
+
+plot(df[,c(4,1:3)])
+cor(df[,c(4,1:3)],method="spearman") # Non Parametric version for general variables
+```
+
+```{r}
+#INTERACTION BETWEEN CATEGORICAL AND NUMERICAL VARIABLES 
+# --> It can be done with condes$quali
+
+#SEX
+# Numeric
+with(df, tapply(charges,f.sex,summary))
+# Graphics
+Boxplot(charges~f.sex,data=df, id=list(n=Inf,labels=row.names(df))) # It does work (Because there are no NA's)
+
+#REGION
+# Numeric
+with(df, tapply(charges,f.reg,summary))
+# Graphics
+Boxplot(charges~f.reg,data=df, id=list(n=Inf,labels=row.names(df))) # It does work (Because there are no NA's)
+
+#SMOKER
+# Numeric
+with(df, tapply(charges,f.smok,summary))
+# Graphics
+Boxplot(charges~f.smok,data=df, id=list(n=Inf,labels=row.names(df))) # It does work (Because there are no NA's)
+```
+
+\newpage
