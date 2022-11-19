@@ -55,6 +55,10 @@ library(arules)
 library(lmtest)
 library(chemometrics)
 library(FactoMineR)
+library(corrplot)
+library(effects)
+library(AER)
+library(MASS)
 ```
 
 \newpage
@@ -218,10 +222,6 @@ df$smoker <- NULL #delete smoker
 str(df)
 ```
 
-```{r ggpairs, include=FALSE}
-ggpairs(df[,c(7,1:6)])
-```
-
 ## Normal Distribution Test for Target Variable (charges)
 
 By taking a look at the histogram of the target variable and the density curve that describe a normal distribution with mean and standard deviation equal to the respective values of the data set, one can understand that the target variable does not follow a normal distribution. In order to be precise, by running the Shapiro test, the result indicate a value less than 0.05. Thus, the null hypothesis can be rejected and conclude that the target variable does not follow a normal distribution.
@@ -296,7 +296,7 @@ length(llout_bmi)
 The results are the same, there are no severe outliers for variable BMI as well, but in this case some mild ones appear but will not be treated. To continue with, same technique is used for variable children.
 
 ```{r uniOutChildren}
-# 2 - CHILDREN:
+# 3 - CHILDREN:
 Boxplot(df$children, main = "Boxplot of Variable BMI")
 var_out<-calcQ(df$children)
 abline(h=var_out$souts,col="red")
@@ -333,62 +333,237 @@ df <- df[-llout_charges,]
 
 ### Multivariate Outliers
 
-```{r}
-res.mout <- Moutlier( df[ , c(1:4)], quantile = 0.95 )
-#str(res.mout)
-#res.mout
+In this subsection, the detection of multivariate outliers is taking place. As a first step, the calculation of the Mahalanobis distance with a confidence interval of 95% is completed. The Classical and Robust Mahalanobis distances for the numerical values of the dataset are presented in the following figure:
 
+```{r mOutMaha}
+res.mout <- Moutlier( df[ , c(1:4)], quantile = 0.95 )
+```
+
+After calculating Mahalanobis distance at a 95% confidence interval, the cut off given is presented below.
+
+```{r mOutCutOff}
+res.mout$cutoff
+```
+
+Then, all the observations which have a classical and a robust distance bigger than this cut off are marked as multivariate outliers. After detecting them, a new factor is being created in the data set, indicating if an observation belongs to multivariate outliers or not. It can be seen in the final result that 53 observations are marked as multivariate outliers. Further analysis about them will be conducted in the following sections.
+
+```{r mOutPlot, echo=FALSE}
 par(mfrow=c(1,1))
 plot( res.mout$md, res.mout$rd )
 text(res.mout$md, res.mout$rd, labels=rownames(df),adj=1, cex=0.5)
 abline( h=res.mout$cutoff, lwd=2, col="red")
 abline( v=res.mout$cutoff, lwd=2, col="red")
+```
 
-llmout <- which( ( res.mout$md > res.mout$cutoff ) 
-                 & (res.mout$rd > res.mout$cutoff) );llmout
-df[llmout,]
-#res.mout$md[llmout]
+```{r detectMout}
+llmout <- which((res.mout$md > res.mout$cutoff) 
+                 & (res.mout$rd > res.mout$cutoff))
+#df[llmout,] # Observations of Multiple Outliers
 df$mout <- 0
-df$mout[ llmout ] <- 1
+df$mout[llmout] <- 1
 df$mout <- factor( df$mout, labels = c("MvOut.No","MvOut.Yes"))
-summary(df)
+summary(df["mout"])
 ```
 
 ## Preliminary Exploratory Analysis
 
-```{r}
-res.con<-condes(df,4, proba = 1)
-#str(res.con)
-#names(res.con)
-res.con$quanti
-res.con$quali
-res.con$category
+The goal of this chapter is to discover the relationships between the different variables of the data set. In order to do so, the following techniques were used: calculation of the Spearman correlation for the numerical variables, once the target variable does not follow a normal distribution, use of the library FactoMineR and Boxplots for presenting interactions between the target and categorical and numerical variables.
 
-plot(df[,c(4,1:3)])
-cor(df[,c(4,1:3)],method="spearman") # Non Parametric version for general variables
+In the following graph, the correlation of the numerical values is presented. The only significant observation here is that age and charges have a slight strong correlation. By checking the correlation matrix the value between those two variables is equal to 0.53.
+
+```{r corrPlot}
+M <- cor(df[,c(4,1:3)],method="spearman");M #Non Parametric version
+corrplot(M, method="circle")
 ```
 
-```{r}
-#INTERACTION BETWEEN CATEGORICAL AND NUMERICAL VARIABLES 
-# --> It can be done with condes$quali
+Moreover, with the usage of the library FactoMineR and specifically the function condes, which calculate the dependencies of a continuous variable, it is able to check the dependencies of the target variable with the rest of the variables of the data set. At first, by looking at the dependency between the target variable and the numerical variables the following result is produced.
 
+```{r condesQuanti}
+res.con<-condes(df[,1:9],4)
+res.con$quanti
+```
+
+It is clear again, that the bigger correlation (0.3 here) with the target variable exist for the age variable, with a great statistical significance due to the really small value of p-value presented. The conclutions here are the same with the ones produced by the correlation matrix.
+
+Furthermore, the relationship of the target variable with the qualitative variables is conducted below.
+
+```{r condesQuali}
+res.con$quali
+```
+
+It is obvious, that the most important relationship (for the categorical variables) exist between charges and the factor "f.smok" with an R-square value approximately equal to 0.62 and an extremely low p-value. The rest of the categorical variables ("f.age", "f.bmi", "f.sex" and "f.reg") do not show a great relationship with the target variable since the R-squared values they achieve is really small (close to 0).
+
+A closer look to the relationship of charges and the different categories of the categorical variables is presented below.
+
+```{r condesCategory}
+res.con$category
+```
+
+By interpreting the results, one can understand that the most influential categories that lead to the maximization of the values of the target variable is people who are smokers, following by old people and people with high BMI values. On the other hand, exactly the opposite is true for non smokers and young people.
+
+With the following graphs, a visual result of the above conclusions is presented.
+
+```{r visualInteractionsSEX, echo=FALSE}
 #SEX
-# Numeric
-with(df, tapply(charges,f.sex,summary))
-# Graphics
-Boxplot(charges~f.sex,data=df, id=list(n=Inf,labels=row.names(df))) # It does work (Because there are no NA's)
+par(mfrow=c(1,1))
+boxplot(charges~f.sex,data=df, id=list(n=Inf,labels=row.names(df)),
+        main = "Association of Charges and Sex")
+```
 
+```{r visualInteractionsREGION, echo=FALSE}
 #REGION
-# Numeric
-with(df, tapply(charges,f.reg,summary))
-# Graphics
-Boxplot(charges~f.reg,data=df, id=list(n=Inf,labels=row.names(df))) # It does work (Because there are no NA's)
+par(mfrow=c(1,1))
+boxplot(charges~f.reg,data=df, id=list(n=Inf,labels=row.names(df)),
+        main = "Association of Charges and Region")
+```
 
+```{r visualInteractionsSMOKER, echo=FALSE}
 #SMOKER
-# Numeric
-with(df, tapply(charges,f.smok,summary))
-# Graphics
-Boxplot(charges~f.smok,data=df, id=list(n=Inf,labels=row.names(df))) # It does work (Because there are no NA's)
+par(mfrow=c(1,1))
+boxplot(charges~f.smok,data=df, id=list(n=Inf,labels=row.names(df)),
+        main = "Association of Charges and Smokers")
+```
+
+```{r visualInteractionsAGE, echo=FALSE}
+#AGE
+par(mfrow=c(1,1))
+boxplot(charges~f.age,data=df, id=list(n=Inf,labels=row.names(df)),
+        main = "Association of Charges and Age")
+```
+
+```{r visualInteractionsBMI, echo=FALSE}
+#BMI
+par(mfrow=c(1,1))
+boxplot(charges~f.bmi,data=df, id=list(n=Inf,labels=row.names(df)),
+        main = "Association of Charges and BMI")
+```
+
+Additionally, association tests on mean and variance are completed below between the target variable and the different explanatory variables, based on their type. It is important to mention here, that only non-parametric tests were completed due to the fact that charges do not follow a normal distribution. Firstly, Kruskal test is used for checking the mean of the target variable between the different groups of region, age and BMI multi-level factors.
+
+```{r testOnMeansMultiFactors}
+kruskal.test(charges~f.age,data=df)
+kruskal.test(charges~f.reg,data=df)
+kruskal.test(charges~f.bmi,data=df)
+```
+
+Kruskal test on mean for the target variable base on the different groups of age showed that the p-value is extremely small, so null hypothesis can be rejected, thus it can be said that the different groups of age have different mean of the variable charges. With the same approach, the same result is derived for categorical variables "f.reg" and "f.bmi", but here the p-values are not very small, in fact they are bigger than 0.01. This means that the difference of the means in the specific sample is not so significant.
+
+To continue with, in order to test the mean difference between the different groups of binary factors the usage of Wilcox test is necessary. The test is completed one for the variable "f.sex" and one for "f.smoke".
+
+```{r testOnMeansBinaryFactors}
+wilcox.test(charges~f.sex,data=df, correct = TRUE, exact= FALSE)
+wilcox.test(charges~f.smok,data=df, correct = TRUE, exact= FALSE)
+```
+
+It is obvious, that for variable "f.smok" the p-value is extremely low (rejecting null hypothesis), thus the mean of the target variable for smokers and non-smokers have a significant difference, while for variable "f.sex" the p-value is large (0.69), meaning that mean values of charges do not have significant differences for men and women.
+
+Moving on, the variance tests are taking place. For the same reason as for the mean tests, only non-parametric tests were used. In the case of variance, Flinger test covers both multi-leveled factors and binary ones.
+
+```{r testOnVarAllFactors}
+fligner.test(charges~f.age,data=df) # Non Parametric
+fligner.test(charges~f.reg,data=df)
+fligner.test(charges~f.bmi,data=df)
+fligner.test(charges~f.sex,data=df)
+fligner.test(charges~f.smok,data=df)
+```
+
+While Fligner test has as a null hypothesis the fact that variances in each of the groups defined by the levels of the factors are the same, the following results are concluded. For variable "f.age" we have a large p-value (0.89) indicating that the variance of charges in the different age groups is the same. For variable "f.reg" the p-value is less than 0.05 (0.0003) so here one can say that the variance of charges in different regions have a significant difference. The same is true for variable "f.sex" which achieve a p-value equal to 0.001. To continue with, for variable "f.bmi" the p-value of the test is slightly smaller than 0.05 (0.042), which means that null hypothesis is rejected, but due to the fact that the p-value is close to 0.05, it is concluded that the difference on the variance in the different BMI groups is not so significant. On the other hand variable "f.smok" achieves a p-value close to 0 (2.2e-16) showing that the difference of variance for variable charges is totally significant between smokers and non-smokers.
+
+To conclude, all of the above relationships can be presented in total in the following pairplot.
+
+```{r ggpairs, echo=FALSE, message=FALSE}
+ggpairs(df[,c(4,1:3,5:9)])
+```
+
+# Linear Regression Modelling
+
+In this section of the report, the creation and comparison of multiple linear regression models is completed. The approach followed is presented here. As a first step, a linear model is trained addressing the target variable by using only numeric variables. Then, the addition of factors in the model is taking place, as well as the interactions between the different variables of the data set. Between each step, the quality of the models is being tested. The quality assurance of the models include the interpretation of several plots, like residuals plots, influential data plots, all-effects plots, etc.. Additionally, filtering of the influential data and several transformations on the explanatory variables are taking place in order to correct the final prediction quality of the model. The whole procedure is described in details in the next subsections.
+
+## Addressing Target Variable only with Numerical Variables
+
+In this subsection the training of a linear model by using only the numerical variables of the data set is achieved. The numerical explanatory variables used are age, BMI and children.
+
+```{r lm0}
+m0 <- lm( df$charges~df$age+df$bmi+df$children, data=df[,1:9])
+summary(m0)
+vif(m0)
+```
+
+By checking the results above, it is presented that all coefficients for the three numerical variables have small p-values, meaning that the null hypothesis (coefficient equal to zero) can be rejected, same for intercept. Also, the difference in the significance of the p-values can be seen, indicating that variable age is the most important following by BMI and finally children with way smaller significance. Additionally, R-squared value of the model is very small (0.1189) suggesting that the linear model is poor. In the following graphs the residual plots for model m0 take place.
+
+```{r lm0Plot, echo=FALSE}
+par(mfrow=c(2,2))
+plot(m0)
+par(mfrow=c(1,1))
+```
+
+By checking the fitted vs residuals plots, one can understand that heteroscedasticity is present in the regression model. Also by checking the Normal Q-Q plot, the residuals do not follow a normal distribution. Thus, the quality of the model for predicting the target variable is poor and needs to be upgraded. Although, from Residuals vs Leverage plot it is clear that there are no influential data so far.
+
+The next step, with goal the improvement of the model, is to check if any transformation, both in the target or the explanatory variables, will improve the quality of the model. Firstly, a transformation on the target variable is tested. In order to check that boxcox transformation is used.
+
+```{r boxcox}
+
+```
+
+```{r ANDERLM, include=FALSE}
+#LINEAR MODELS (just an example :))
+
+# AGE
+par(mfrow=c(1,1))
+plot(df$charges,df$age,pch=19)
+ma<-lm(df$charges~df$age,data=df)
+summary(ma)
+
+#check for influential data
+influenceIndexPlot(ma, id.n=5)
+
+par(mfrow=c(1,1))
+residualPlot(ma)
+rstan <- rstandard(ma) #Standardized residuals
+rstud <- rstudent(ma) #Studentized residuals
+dcook <- cooks.distance(ma) #Cook distance
+dcook
+leverage <- hatvalues (ma) #Leverage of observations
+leverage #This is used to assess whether there can be a priori influential observations 
+
+plot(ma$fitted.values, rstan) #Standardized residuals vs fitted values
+plot(ma$fitted.values, rstud) #Studentized residuals vs fitted values
+
+marginalModelPlots(ma)
+
+dfbetas(ma) #Beta coefficients without observation i
+# This is the effect of extracting out the observation i from the estimation
+
+# Detection of influential data:
+matplot(dfbetas(ma), type="l", col=3:4,lwd=2)
+lines(sqrt(cooks.distance(ma)),col=1,lwd=3)
+# See the slides for more details of these limits
+abline(h=2/sqrt(dim(anscombe)[1]), lty=3,lwd=1,col=5)
+abline(h=-2/sqrt(dim(anscombe)[1]), lty=3,lwd=1,col=5)
+abline(h=sqrt(4/(dim(anscombe)[1]-length(names(coef(ma))))), lty=3,lwd=1,col=6)
+
+influenceIndexPlot(ma) #NE?
+llev <- which(hatvalues(ma)>3*(3/44))
+llout <- Boxplot(cooks.distance(ma))
+llout
+length(llout) #10 values of influential data??
+
+par(mfrow=c(2,2))
+plot(ma)
+
+# BMI
+par(mfrow=c(1,1))
+plot(df$charges,df$bmi,pch=10, col="red")
+mb<-lm(df$charges~df$bmi,data=df)
+lines(df$bmi,fitted(mb),col="blue") #xk no me salen las líneas?????
+summary(mb)
+
+# CHILDREN
+par(mfrow=c(1,1))
+plot(df$charges,df$children,pch=19)
+mc<-lm(df$charges~df$children,data=df)
+summary(mc)
+
 ```
 
 \newpage
