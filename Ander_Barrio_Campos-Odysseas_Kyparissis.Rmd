@@ -8,7 +8,6 @@ date: "`r Sys.Date()`"
 geometry: margin=2cm
 fontsize: 12pt
 line-height: 1.5
-
 output: 
   pdf_document:
     includes:
@@ -663,7 +662,7 @@ Additionally, from the residuals plot, again it is concluded that, heteroskedast
 influencePlot(m12,main = "Model m12")
 ```
 
-Finally, the marginal model plot and the added variable plots are presented for the final model. In general, the model does not fit very well the data. It was anticipated to see the residuals following a normal distribution after the removal of outliers and influential data , but it did not happen. For that reason the quality plots show that some of the multiple linear modelling assumptions are not followed. The conclusion is that a linear regression is not good enough to predict the charges based on the explanatory variables and maybe a more complex predictive model could help.
+Finally, the model does not fit very well the data. It was anticipated to see the residuals following a normal distribution after the removal of outliers and influential data , but it did not happen. For that reason the quality plots show that some of the multiple linear modelling assumptions are not followed. The conclusion is that a linear regression is not good enough to predict the charges based on the explanatory variables and maybe a more complex predictive model could help.
 
 ```{r, echo=FALSE, message=FALSE}
 #marginalModelPlots(m12, main = "Model m12")
